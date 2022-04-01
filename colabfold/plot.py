@@ -19,45 +19,81 @@ def plot_predicted_alignment_error(
     plt.close()
 
 
-def plot_lddt(
-    jobname: str, msa, outs: dict, query_sequence, result_dir: Path, show: bool = False
-):
+def plot_msa(msa, query_sequence, seq_len_list, total_seq_len, dpi=100):
     # gather MSA info
-    seqid = (query_sequence == msa).mean(-1)
-    seqid_sort = seqid.argsort()  # [::-1]
-    non_gaps = (msa != 21).astype(float)
-    non_gaps[non_gaps == 0] = np.nan
+    prev_pos = 0
+    msa_parts = []
+    Ln = np.cumsum(np.append(0, [len for len in seq_len_list]))
+    for id, l in enumerate(seq_len_list):
+        chain_seq = np.array(query_sequence[prev_pos : prev_pos + l])
+        chain_msa = np.array(msa[:, prev_pos : prev_pos + l])
+        seqid = np.array(
+            [
+                np.count_nonzero(chain_seq == msa_line[prev_pos : prev_pos + l])
+                / len(chain_seq)
+                for msa_line in msa
+            ]
+        )
+        non_gaps = (chain_msa != 21).astype(float)
+        non_gaps[non_gaps == 0] = np.nan
+        msa_parts.append((non_gaps[:] * seqid[:, None]).tolist())
+        prev_pos += l
+    lines = []
+    lines_to_sort = []
+    prev_has_seq = [True] * len(seq_len_list)
+    for line_num in range(len(msa_parts[0])):
+        has_seq = [True] * len(seq_len_list)
+        for id in range(len(seq_len_list)):
+            if np.sum(~np.isnan(msa_parts[id][line_num])) == 0:
+                has_seq[id] = False
+        if has_seq == prev_has_seq:
+            line = []
+            for id in range(len(seq_len_list)):
+                line += msa_parts[id][line_num]
+            lines_to_sort.append(np.array(line))
+        else:
+            lines_to_sort = np.array(lines_to_sort)
+            lines_to_sort = lines_to_sort[np.argsort(-np.nanmax(lines_to_sort, axis=1))]
+            lines += lines_to_sort.tolist()
+            lines_to_sort = []
+            line = []
+            for id in range(len(seq_len_list)):
+                line += msa_parts[id][line_num]
+            lines_to_sort.append(line)
+        prev_has_seq = has_seq
+    lines_to_sort = np.array(lines_to_sort)
+    lines_to_sort = lines_to_sort[np.argsort(-np.nanmax(lines_to_sort, axis=1))]
+    lines += lines_to_sort.tolist()
 
-    plt.figure(figsize=(14, 4), dpi=100)
+    # Nn = np.cumsum(np.append(0, Nn))
+    # lines = np.concatenate(lines, 1)
+    xaxis_size = len(lines[0])
+    yaxis_size = len(lines)
 
-    plt.subplot(1, 2, 1)
+    plt.figure(figsize=(8, 5), dpi=dpi)
     plt.title("Sequence coverage")
     plt.imshow(
-        non_gaps[seqid_sort] * seqid[seqid_sort, None],
+        lines[::-1],
         interpolation="nearest",
         aspect="auto",
         cmap="rainbow_r",
         vmin=0,
         vmax=1,
         origin="lower",
+        extent=(0, xaxis_size, 0, yaxis_size),
     )
-    plt.plot((msa != 21).sum(0), color="black")
-    plt.xlim(-0.5, msa.shape[1] - 0.5)
-    plt.ylim(-0.5, msa.shape[0] - 0.5)
+    for i in Ln[1:-1]:
+        plt.plot([i, i], [0, yaxis_size], color="black")
+    # for i in Ln_dash[1:-1]:
+    #    plt.plot([i, i], [0, lines.shape[0]], "--", color="black")
+    # for j in Nn[1:-1]:
+    #    plt.plot([0, lines.shape[1]], [j, j], color="black")
+
+    plt.plot((np.isnan(lines) == False).sum(0), color="black")
+    plt.xlim(0, xaxis_size)
+    plt.ylim(0, yaxis_size)
     plt.colorbar(label="Sequence identity to query")
     plt.xlabel("Positions")
     plt.ylabel("Sequences")
 
-    plt.subplot(1, 2, 2)
-    plt.title("Predicted lDDT per position")
-    for model_name, value in outs.items():
-        plt.plot(value["plddt"], label=model_name)
-
-    plt.legend()
-    plt.ylim(0, 100)
-    plt.ylabel("Predicted lDDT")
-    plt.xlabel("Positions")
-    plt.savefig(str(result_dir.joinpath(jobname + "_coverage_lDDT.png")))
-    if show:
-        plt.show()
-    plt.close()
+    return plt

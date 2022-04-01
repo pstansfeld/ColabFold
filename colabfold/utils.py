@@ -1,8 +1,11 @@
+import json
 import logging
 import warnings
 from pathlib import Path
+from typing import Optional
 
 from absl import logging as absl_logging
+from importlib_metadata import distribution
 from tqdm import TqdmExperimentalWarning
 
 NO_GPU_FOUND = """ERROR: Jax could not find GPU. This can be either because your machine doesn't have a GPU
@@ -14,7 +17,7 @@ See https://github.com/google/jax/#pip-installation-gpu-cuda for more details.
 
 If you're sure you want to run without a GPU, pass `--cpu`"""
 
-DEFAULT_API_SERVER = "https://a3m.mmseqs.com"
+DEFAULT_API_SERVER = "https://api.colabfold.com"
 
 ACCEPT_DEFAULT_TERMS = """WARNING: You are welcome to use the default MSA server, however keep in mind that it's a limited shared resource only capable of processing a few thousand MSAs per day. Please submit jobs only from a single IP address. We reserve the right to limit access to the server case-by-case when usage exceeds fair use.
 
@@ -49,3 +52,15 @@ def setup_logging(log_file: Path):
 
 def safe_filename(file: str) -> str:
     return "".join([c if c.isalnum() or c in ["_", ".", "-"] else "_" for c in file])
+
+
+def get_commit() -> Optional[str]:
+    text = distribution("colabfold").read_text("direct_url.json")
+    if not text:
+        return None
+    direct_url = json.loads(text)
+    if "vcs_info" not in direct_url:
+        return None
+    if "commit_id" not in direct_url["vcs_info"]:
+        return None
+    return direct_url["vcs_info"]["commit_id"]
